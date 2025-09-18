@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude CLI API Streaming Client</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056CC;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #000;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.completed {
+            background: #cce7ff;
+            color: #004085;
+            border: 1px solid #b3d7ff;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Claude CLI API Streaming Client (Fixed)</h1>
+        
+        <div class="input-group">
+            <label for="apiUrl">API Base URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:3000" />
+        </div>
+
+        <div class="input-group">
+            <label for="sessionId">Session ID (optional):</label>
+            <input type="text" id="sessionId" placeholder="Leave empty to create new session" />
+        </div>
+
+        <div class="input-group">
+            <label for="workingDir">Working Directory (optional):</label>
+            <input type="text" id="workingDir" placeholder="Leave empty for current directory" />
+        </div>
+
+        <div class="input-group">
+            <label for="prompt">Prompt:</label>
+            <textarea id="prompt" placeholder="Enter your prompt for Claude...">What is 2+2? Please explain step by step.</textarea>
+        </div>
+
+        <div class="input-group">
+            <label for="model">Model:</label>
+            <select id="model">
+                <option value="sonnet">Sonnet (default)</option>
+                <option value="opus">Opus</option>
+                <option value="haiku">Haiku</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label>
+                <input type="checkbox" id="skipPermissions" checked> 
+                Skip Permissions (dangerously-skip-permissions)
+            </label>
+        </div>
+
+        <button id="streamBtn" onclick="startStreaming()">🎯 Start Streaming</button>
+        <button id="stopBtn" onclick="stopStreaming()" disabled>⏹️ Stop</button>
+        <button onclick="clearOutput()">🗑️ Clear Output</button>
+        <button onclick="createSession()">➕ Create Session</button>
+
+        <div id="status" class="status hidden"></div>
+
+        <div class="output" id="output">Ready to stream Claude responses...\
+\
+</div>
+    </div>
+
+    <script>
+        let currentSessionId = null;
+        let isStreaming = false;
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'data' ? '📄' : 'ℹ️';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\
+`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function setStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            const status = document.getElementById('status');
+            status.classList.add('hidden');
+        }
+
+        async function createSession() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const workingDir = document.getElementById('workingDir').value;
+
+            try {
+                const response = await fetch(`${apiUrl}/sessions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        workingDirectory: workingDir || undefined
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    currentSessionId = data.sessionId;
+                    document.getElementById('sessionId').value = currentSessionId;
+                    log(`Session created: ${currentSessionId}`);
+                    setStatus(`Session created: ${currentSessionId}`, 'connected');
+                } else {
+                    log(`Failed to create session: ${data.error}`, 'error');
+                    setStatus(`Failed to create session: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                log(`Error creating session: ${error.message}`, 'error');
+                setStatus(`Error creating session: ${error.message}`, 'error');
+            }
+        }
+
+        function startStreaming() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const sessionId = document.getElementById('sessionId').value;
+            const prompt = document.getElementById('prompt').value;
+            const model = document.getElementById('model').value;
+            const skipPermissions = document.getElementById('skipPermissions').checked;
+
+            if (!prompt.trim()) {
+                alert('Please enter a prompt');
+                return;
+            }
+
+            if (isStreaming) {
+                log('Already streaming, please stop current stream first', 'error');
+                return;
+            }
+
+            // Disable start button, enable stop button
+            document.getElementById('streamBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            isStreaming = true;
+
+            log(`Starting streaming request...`);
+            log(`Prompt: ${prompt}`);
+
+            // Determine endpoint
+            const endpoint = sessionId ? 
+                `${apiUrl}/sessions/${sessionId}/stream` : 
+                `${apiUrl}/claude/stream`;
+
+            // Create request body
+            const requestBody = {
+                prompt: prompt,
+                options: {
+                    model: model,
+                    dangerouslySkipPermissions: skipPermissions
+                }
+            };
+
+            // Start fetch request for streaming
+            fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function readStream() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            log('Stream completed');
+                            setStatus('Stream completed', 'completed');
+                            stopStreaming();
+                            return;
+                        }
+
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\
+');
+
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) {
+                                const event = line.substring(7);
+                                // Handle different event types
+                            } else if (line.startsWith('data: ')) {
+                                const data = line.substring(6);
+                                if (data.trim()) {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        handleStreamData(parsed);
+                                    } catch (e) {
+                                        log(`Raw data: ${data}`, 'data');
+                                    }
+                                }
+                            }
+                        }
+
+                        readStream();
+                    }).catch(error => {
+                        log(`Stream error: ${error.message}`, 'error');
+                        setStatus(`Stream error: ${error.message}`, 'error');
+                        stopStreaming();
+                    });
+                }
+
+                readStream();
+            }).catch(error => {
+                log(`Connection error: ${error.message}`, 'error');
+                setStatus(`Connection error: ${error.message}`, 'error');
+                stopStreaming();
+            });
+        }
+
+        function handleStreamData(data) {
+            if (data.type === 'connected') {
+                log('🔗 Connected to streaming endpoint');
+                setStatus('Connected - streaming in progress...', 'connected');
+            } else if (data.type === 'system') {
+                log(`🖥️  System initialized - Session: ${data.session_id || 'unknown'}`, 'data');
+                if (data.session_id) {
+                    currentSessionId = data.session_id;
+                    document.getElementById('sessionId').value = currentSessionId;
+                }
+                if (data.tools) {
+                    log(`🛠️  Available tools: ${data.tools.length}`, 'data');
+                }
+            } else if (data.type === 'assistant' && data.message) {
+                log(`🤖 Assistant response received`, 'data');
+                // Extract text content from assistant message
+                if (data.message.content) {
+                    for (const content of data.message.content) {
+                        if (content.type === 'text' && content.text) {
+                            log(`💬 Claude: ${content.text}`, 'data');
+                        }
+                    }
+                }
+            } else if (data.type === 'result') {
+                log(`🎯 Final Result: ${data.result || 'No result text'}`, 'data');
+                if (data.result) {
+                    log(`✨ ANSWER: ${data.result}`, 'data');
+                }
+            } else if (data.type === 'text' && data.text) {
+                log(`📝 Text: ${data.text}`, 'data');
+            } else if (data.type === 'raw' && data.text && data.text.length > 2) {
+                log(`📄 Raw: ${data.text}`, 'data');
+            } else if (data.error) {
+                log(`❌ Error: ${data.error}`, 'error');
+                setStatus(`Error: ${data.error}`, 'error');
+            } else if (data.completed) {
+                log('✅ Request completed successfully');
+                setStatus('Request completed successfully', 'completed');
+                if (data.sessionId) {
+                    currentSessionId = data.sessionId;
+                }
+            } else {
+                // Log other data types with better formatting
+                const dataStr = JSON.stringify(data, null, 2);
+                if (dataStr.length < 200) {
+                    log(`📊 ${data.type || 'Unknown'}: ${dataStr}`, 'data');
+                } else {
+                    log(`📊 ${data.type || 'Unknown'}: [Large response]`, 'data');
+                }
+            }
+        }
+
+        function stopStreaming() {
+            isStreaming = false;
+            document.getElementById('streamBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            
+            log('Streaming stopped');
+        }
+
+        function clearOutput() {
+            document.getElementById('output').textContent = 'Output cleared...\
+\
+';
+            hideStatus();
+        }
+    </script>
+</body>
+</html>
