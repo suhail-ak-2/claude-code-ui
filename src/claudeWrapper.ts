@@ -49,7 +49,7 @@ export class ClaudeWrapper {
       sessionId: request.sessionId,
       promptLength: request.prompt.length,
       workingDirectory: request.workingDirectory,
-      model: request.options?.model || 'sonnet'
+      model: request.model || 'sonnet'
     });
 
     // Start telemetry tracking
@@ -57,15 +57,16 @@ export class ClaudeWrapper {
       request.sessionId,
       !!request.sessionId,
       request.prompt.length,
-      request.options?.model || 'sonnet',
+      request.model || 'sonnet',
       request.workingDirectory,
       false
     );
 
     try {
       const result = await this.runClaudeCommand(
-        request.prompt, 
-        request.workingDirectory, 
+        request.prompt,
+        request.workingDirectory,
+        request.model,
         request.options
       );
       
@@ -131,7 +132,7 @@ export class ClaudeWrapper {
       sessionId: request.sessionId,
       promptLength: request.prompt.length,
       workingDirectory: request.workingDirectory,
-      model: request.options?.model || 'sonnet',
+      model: request.model || 'sonnet',
       isStreaming: true
     });
 
@@ -140,7 +141,7 @@ export class ClaudeWrapper {
       request.sessionId,
       !!request.sessionId,
       request.prompt.length,
-      request.options?.model || 'sonnet',
+      request.model || 'sonnet',
       request.workingDirectory,
       true
     );
@@ -182,10 +183,11 @@ export class ClaudeWrapper {
     };
 
     return this.runClaudeCommandStreaming(
-      request.prompt, 
-      request.workingDirectory, 
-      request.options, 
-      request.sessionId, 
+      request.prompt,
+      request.workingDirectory,
+      request.model,
+      request.options,
+      request.sessionId,
       telemetryCallback
     );
   }
@@ -194,12 +196,13 @@ export class ClaudeWrapper {
    * Execute Claude CLI command in blocking mode (non-streaming)
    */
   private runClaudeCommand(
-    prompt: string, 
-    workingDirectory: string | undefined, 
+    prompt: string,
+    workingDirectory: string | undefined,
+    model: string | undefined,
     options: ClaudeOptions | undefined
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const args = this.buildClaudeArgs(prompt, options, false);
+      const args = this.buildClaudeArgs(prompt, model, options, false);
       const process = this.spawnClaudeProcess(args, workingDirectory);
       
       let stdout = '';
@@ -224,14 +227,15 @@ export class ClaudeWrapper {
    * Execute Claude CLI command with streaming support
    */
   private runClaudeCommandStreaming(
-    prompt: string, 
-    workingDirectory: string | undefined, 
-    options: ClaudeOptions | undefined, 
-    sessionId: string | undefined, 
+    prompt: string,
+    workingDirectory: string | undefined,
+    model: string | undefined,
+    options: ClaudeOptions | undefined,
+    sessionId: string | undefined,
     callback: StreamingCallback
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const args = this.buildClaudeArgs(prompt, options, true, sessionId);
+      const args = this.buildClaudeArgs(prompt, model, options, true, sessionId);
       const process = this.spawnClaudeProcess(args, workingDirectory);
       
       let stdout = '';
@@ -274,9 +278,10 @@ export class ClaudeWrapper {
    * Build Claude CLI arguments array based on request parameters
    */
   private buildClaudeArgs(
-    prompt: string, 
-    options: ClaudeOptions | undefined, 
-    isStreaming: boolean, 
+    prompt: string,
+    model: string | undefined,
+    options: ClaudeOptions | undefined,
+    isStreaming: boolean,
     sessionId?: string
   ): string[] {
     const args: string[] = [];
@@ -292,7 +297,8 @@ export class ClaudeWrapper {
     args.push(
       '--output-format', 'stream-json',
       '--verbose',
-      '--permission-mode', 'bypassPermissions'
+      '--permission-mode', 'bypassPermissions',
+      '--mcp-config', '.mcp.json'
     );
     
     // Add partial messages for streaming (not supported with --resume)
@@ -302,8 +308,8 @@ export class ClaudeWrapper {
     
     // Add model (only for new sessions)
     if (!sessionId) {
-      const model = options?.model || 'sonnet';
-      args.push('--model', model);
+      const selectedModel = model || 'sonnet';
+      args.push('--model', selectedModel);
     }
     
     // Add tool restrictions if specified

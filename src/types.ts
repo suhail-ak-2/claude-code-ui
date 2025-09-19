@@ -8,13 +8,16 @@
 export interface ClaudeRequest {
   /** The prompt to send to Claude */
   prompt: string;
-  
+
   /** Optional working directory for file operations */
   workingDirectory?: string;
-  
+
   /** Optional session ID for resuming conversations */
   sessionId?: string;
-  
+
+  /** Optional model to use (e.g., 'sonnet', 'opus', 'claude-sonnet-4-20250514', 'opusplan') */
+  model?: string;
+
   /** Optional configuration options */
   options?: ClaudeOptions;
 }

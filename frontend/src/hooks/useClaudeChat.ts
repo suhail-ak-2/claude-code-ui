@@ -36,6 +36,20 @@ export function useClaudeChat(workingDirectory: string) {
   const [sessionId, setSessionId] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4-20250514');
+  const [currentUsage, setCurrentUsage] = useState<{
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cachedInputTokens: number;
+    reasoningTokens: number;
+  }>({
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedInputTokens: 0,
+    reasoningTokens: 0
+  });
 
   // Load agents when working directory changes
   useEffect(() => {
@@ -151,6 +165,16 @@ export function useClaudeChat(workingDirectory: string) {
 
   const handleResult = (data: StreamEvent) => {
     if (data.usage) {
+      // Update token usage from the result
+      const usage = data.usage;
+      setCurrentUsage({
+        inputTokens: usage.input_tokens || 0,
+        outputTokens: usage.output_tokens || 0,
+        totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
+        cachedInputTokens: usage.cache_read_input_tokens || 0,
+        reasoningTokens: 0 // Claude doesn't have reasoning tokens yet
+      });
+
       setMessages(prev =>
         prev.map((msg) =>
           msg.isStreaming ? { ...msg, isStreaming: false } : msg
@@ -181,6 +205,7 @@ export function useClaudeChat(workingDirectory: string) {
           prompt,
           sessionId: sessionId || undefined,
           workingDirectory: workingDirectory,
+          model: selectedModel,
         }),
       });
 
@@ -227,6 +252,16 @@ export function useClaudeChat(workingDirectory: string) {
                     });
                   }
                   return prev;
+                });
+              } else if (data.type === 'stream_event' && data.event?.type === 'message_delta' && data.event?.usage) {
+                // Update usage during streaming
+                const usage = data.event.usage;
+                setCurrentUsage({
+                  inputTokens: usage.input_tokens || 0,
+                  outputTokens: usage.output_tokens || 0,
+                  totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
+                  cachedInputTokens: usage.cache_read_input_tokens || 0,
+                  reasoningTokens: 0
                 });
               } else if (data.type === 'result') {
                 handleResult(data);
@@ -277,6 +312,9 @@ export function useClaudeChat(workingDirectory: string) {
     sessionId,
     isStreaming,
     agents,
+    currentUsage,
+    selectedModel,
+    setSelectedModel,
     sendMessage,
     startNewChat,
     createAgent,
