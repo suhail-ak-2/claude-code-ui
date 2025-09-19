@@ -54,6 +54,9 @@ tool_test.txt
 hello.txt
 test.txt
 
+# Claude agent files (local workspace agents)
+.claude/
+
 # Analysis files (keep these for documentation)
 # STREAMING_ANALYSIS.md
 # STREAM_TESTING_RESULTS.md

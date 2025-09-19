@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { ClaudeWrapper } from './claudeWrapper';
+import { AgentRoutes } from './agentRoutes';
 import { ClaudeRequest, StreamingCallback } from './types';
 import { 
   logger, 
@@ -17,12 +18,14 @@ import {
 export class ClaudeAPIServer {
   private readonly app: express.Application;
   private readonly claudeWrapper: ClaudeWrapper;
+  private readonly agentRoutes: AgentRoutes;
   private readonly port: number;
 
   constructor(port: number = 3000) {
     this.app = express();
     this.port = port;
     this.claudeWrapper = new ClaudeWrapper();
+    this.agentRoutes = new AgentRoutes();
     this.setupMiddleware();
     this.setupRoutes();
     
@@ -52,6 +55,7 @@ export class ClaudeAPIServer {
     this.setupHealthRoute();
     this.setupExecuteRoute();
     this.setupStreamingRoute();
+    this.setupAgentRoutes();
   }
 
   /**
@@ -115,6 +119,13 @@ export class ClaudeAPIServer {
         this.handleError(res, error);
       }
     });
+  }
+
+  /**
+   * Setup agent management routes
+   */
+  private setupAgentRoutes(): void {
+    this.app.use('/agents', this.agentRoutes.getRouter());
   }
 
   /**
@@ -218,7 +229,8 @@ export class ClaudeAPIServer {
       endpoints: {
         health: `http://localhost:${this.port}/health`,
         execute: `POST http://localhost:${this.port}/claude/execute`,
-        stream: `POST http://localhost:${this.port}/claude/stream`
+        stream: `POST http://localhost:${this.port}/claude/stream`,
+        agents: `http://localhost:${this.port}/agents`
       },
       environment: process.env.NODE_ENV || 'development'
     });
@@ -228,6 +240,7 @@ export class ClaudeAPIServer {
     console.log(`📊 Health check: http://localhost:${this.port}/health`);
     console.log(`🤖 Claude execute: POST http://localhost:${this.port}/claude/execute`);
     console.log(`📡 Claude stream: POST http://localhost:${this.port}/claude/stream`);
+    console.log(`👥 Agent management: http://localhost:${this.port}/agents`);
   }
 
   /**

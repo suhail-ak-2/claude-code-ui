@@ -133,3 +133,67 @@ export interface ClaudeResultEvent extends ClaudeStreamEvent {
     [key: string]: any;
   };
 }
+
+/**
+ * Agent metadata from frontmatter
+ */
+export interface AgentMetadata {
+  name: string;
+  description: string;
+  model?: string;
+  color?: string;
+  [key: string]: string | undefined;
+}
+
+/**
+ * Agent file structure
+ */
+export interface Agent {
+  metadata: AgentMetadata;
+  content: string;
+  filePath: string;
+  isGlobal: boolean;
+}
+
+/**
+ * Agent creation request
+ */
+export interface CreateAgentRequest {
+  name: string;
+  description: string;
+  content: string;
+  model?: string;
+  color?: string;
+  isGlobal?: boolean;
+  workingDirectory?: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Agent update request
+ */
+export interface UpdateAgentRequest {
+  description?: string;
+  content?: string;
+  model?: string;
+  color?: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Agent list response
+ */
+export interface AgentListResponse {
+  success: boolean;
+  agents?: Agent[];
+  error?: string;
+}
+
+/**
+ * Agent operation response
+ */
+export interface AgentResponse {
+  success: boolean;
+  agent?: Agent;
+  error?: string;
+}
