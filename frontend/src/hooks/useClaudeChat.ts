@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AgentAPI, type Agent, type CreateAgentRequest } from '@/lib/agent-api';
+import { ChatHistoryAPI, type ConversationMessage } from '@/lib/chat-history-api';
 
 interface StreamMessage {
   id: string;
@@ -75,6 +76,132 @@ export function useClaudeChat(workingDirectory: string) {
   const startNewChat = () => {
     setMessages([]);
     setSessionId('');
+  };
+
+  const loadConversation = async (projectPath: string, sessionId: string) => {
+    try {
+      console.log('Loading conversation:', { projectPath, sessionId });
+
+      const conversation = await ChatHistoryAPI.getConversation(
+        encodeURIComponent(projectPath.replace(/\//g, '-')),
+        sessionId
+      );
+
+      console.log('Raw conversation data:', conversation);
+      console.log('Total messages in conversation:', conversation.messages.length);
+
+      // Convert conversation messages to StreamMessage format
+      const streamMessages: StreamMessage[] = [];
+
+      for (let i = 0; i < conversation.messages.length; i++) {
+        const msg = conversation.messages[i];
+        console.log(`Processing message ${i + 1}:`, { type: msg.type, hasMessage: !!msg.message });
+
+        try {
+          if (msg.type === 'user' && msg.message?.content) {
+            // Handle user messages
+            let content = '';
+
+            if (Array.isArray(msg.message.content)) {
+              // Handle array content format
+              content = msg.message.content
+                .map(c => {
+                  if (typeof c === 'string') return c;
+                  if (c && typeof c === 'object' && 'text' in c) return c.text;
+                  if (c && typeof c === 'object' && 'type' in c && c.type === 'text') return c.text;
+                  return JSON.stringify(c);
+                })
+                .filter(Boolean)
+                .join(' ');
+            } else if (typeof msg.message.content === 'string') {
+              content = msg.message.content;
+            } else {
+              content = JSON.stringify(msg.message.content);
+            }
+
+            if (content.trim()) {
+              streamMessages.push({
+                id: msg.uuid,
+                role: 'user',
+                content: content,
+                type: 'text'
+              });
+              console.log(`Added user message: "${content.substring(0, 50)}..."`);
+            }
+          } else if (msg.type === 'assistant' && msg.message?.content) {
+            // Handle assistant messages - may include text and tool uses
+            const content = msg.message.content;
+
+            if (Array.isArray(content)) {
+              for (let j = 0; j < content.length; j++) {
+                const block = content[j];
+                console.log(`Processing assistant block ${j + 1}:`, { type: block.type });
+
+                if (block.type === 'text' && block.text) {
+                  streamMessages.push({
+                    id: `${msg.uuid}-text-${j}`,
+                    role: 'assistant',
+                    content: block.text,
+                    type: 'text'
+                  });
+                  console.log(`Added assistant text: "${block.text.substring(0, 50)}..."`);
+                } else if (block.type === 'tool_use') {
+                  streamMessages.push({
+                    id: `${msg.uuid}-tool-${block.id}`,
+                    role: 'assistant',
+                    content: `Using ${block.name}`,
+                    type: 'tool_use',
+                    toolName: block.name,
+                    toolInput: JSON.stringify(block.input || {}) as string,
+                    toolResult: '', // Will be filled by tool results
+                    isStreaming: false
+                  });
+                  console.log(`Added tool use: ${block.name}`);
+                }
+              }
+            } else if (typeof content === 'string') {
+              streamMessages.push({
+                id: msg.uuid,
+                role: 'assistant',
+                content,
+                type: 'text'
+              });
+              console.log(`Added assistant string: "${content.substring(0, 50)}..."`);
+            }
+          } else {
+            console.log(`Skipped message type: ${msg.type}`);
+          }
+        } catch (msgError) {
+          console.error(`Error processing message ${i + 1}:`, msgError, msg);
+        }
+      }
+
+      console.log(`Converted ${streamMessages.length} messages for display`);
+
+      if (streamMessages.length === 0) {
+        console.warn('No displayable messages found in conversation. This might be a summary-only or metadata-only conversation.');
+
+        // Create a placeholder message indicating this is a summary-only conversation
+        const summaryMessage = conversation.messages.find(m => m.type === 'summary');
+        if (summaryMessage) {
+          streamMessages.push({
+            id: 'summary-placeholder',
+            role: 'assistant',
+            content: `This conversation appears to be a summary or metadata-only entry. No chat messages were found to display.`,
+            type: 'text'
+          });
+        }
+      }
+
+      // Update state with loaded messages
+      setMessages(streamMessages);
+      setSessionId(sessionId);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
+      return { success: false, error: 'Failed to load conversation' };
+    }
   };
 
   const handleStreamEvent = (data: StreamEvent) => {
@@ -317,6 +444,7 @@ export function useClaudeChat(workingDirectory: string) {
     setSelectedModel,
     sendMessage,
     startNewChat,
+    loadConversation,
     createAgent,
     loadAgents
   };

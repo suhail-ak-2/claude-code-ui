@@ -19,6 +19,7 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 
 // Types
 import { type Agent, type CreateAgentRequest } from '@/lib/agent-api';
+import { ChatHistoryAPI } from '@/lib/chat-history-api';
 
 export default function ClaudeChatInterface() {
   const [inputText, setInputText] = useState('');
@@ -47,6 +48,7 @@ export default function ClaudeChatInterface() {
     setSelectedModel,
     sendMessage,
     startNewChat,
+    loadConversation,
     createAgent
   } = useClaudeChat(workingDirectory);
 
@@ -110,6 +112,26 @@ export default function ClaudeChatInterface() {
     }
   };
 
+  const handleConversationSelect = async (projectPath: string, selectedSessionId: string) => {
+    try {
+      // Update working directory to match the project
+      setWorkingDirectory(projectPath);
+
+      // Load the conversation using the hook
+      const result = await loadConversation(projectPath, selectedSessionId);
+
+      if (result.success) {
+        console.log('Successfully loaded conversation');
+      } else {
+        alert(result.error || 'Failed to load conversation');
+      }
+
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
+      alert('Failed to load conversation');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">
       {/* Sidebar */}
@@ -119,6 +141,7 @@ export default function ClaudeChatInterface() {
           workingDirectory={workingDirectory}
           setWorkingDirectory={setWorkingDirectory}
           startNewChat={startNewChat}
+          onConversationSelect={handleConversationSelect}
         />
       )}
 

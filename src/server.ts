@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { ClaudeWrapper } from './claudeWrapper';
 import { AgentRoutes } from './agentRoutes';
+import { chatHistoryRoutes } from './chatHistoryRoutes';
 import { ClaudeRequest, StreamingCallback } from './types';
 import { 
   logger, 
@@ -56,6 +57,7 @@ export class ClaudeAPIServer {
     this.setupExecuteRoute();
     this.setupStreamingRoute();
     this.setupAgentRoutes();
+    this.setupChatHistoryRoutes();
   }
 
   /**
@@ -126,6 +128,13 @@ export class ClaudeAPIServer {
    */
   private setupAgentRoutes(): void {
     this.app.use('/agents', this.agentRoutes.getRouter());
+  }
+
+  /**
+   * Setup chat history routes
+   */
+  private setupChatHistoryRoutes(): void {
+    this.app.use('/chat-history', chatHistoryRoutes);
   }
 
   /**
@@ -230,7 +239,8 @@ export class ClaudeAPIServer {
         health: `http://localhost:${this.port}/health`,
         execute: `POST http://localhost:${this.port}/claude/execute`,
         stream: `POST http://localhost:${this.port}/claude/stream`,
-        agents: `http://localhost:${this.port}/agents`
+        agents: `http://localhost:${this.port}/agents`,
+        chatHistory: `http://localhost:${this.port}/chat-history`
       },
       environment: process.env.NODE_ENV || 'development'
     });
