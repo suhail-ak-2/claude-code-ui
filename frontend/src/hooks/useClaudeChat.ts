@@ -407,126 +407,27 @@ export function useClaudeChat(workingDirectory: string) {
     // Clear any previous session errors
     setSessionError('');
 
-    const userMessage: StreamMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: prompt
-    };
-    setMessages(prev => [...prev, userMessage]);
-
-    setIsStreaming(true);
-
     try {
-      // Build request with proper session continuation
-      const requestBody: {
-        prompt: string;
-        workingDirectory: string;
-        sessionId?: string;
-        model?: string;
-      } = {
-        prompt,
-        workingDirectory: workingDirectory,
-      };
-
-      // Add sessionId if we have one for continuation
-      if (sessionId) {
-        requestBody.sessionId = sessionId;
-        console.log('Continuing session:', sessionId);
-      } else {
-        // Only set model for new sessions (Claude CLI requirement)
-        requestBody.model = selectedModel;
-        console.log('Starting new session with model:', selectedModel);
-      }
-
-      const response = await fetch('http://localhost:3000/claude/stream', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.body) throw new Error('No response body');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      let streamComplete = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done || streamComplete) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data: StreamEvent = JSON.parse(line.slice(6));
-
-              if (data.type === 'system' && data.session_id) {
-                setSessionId(data.session_id);
-              } else if (data.type === 'stream_event' && data.event) {
-                handleStreamEvent(data);
-              } else if (data.type === 'user' && data.message?.content?.[0]?.type === 'tool_result') {
-                const toolResult = data.message.content[0];
-                setMessages(prev => {
-                  const lastToolIndex = prev.findLastIndex(msg =>
-                    msg.type === 'tool_use'
-                  );
-
-                  if (lastToolIndex !== -1) {
-                    return prev.map((msg, idx) => {
-                      if (idx === lastToolIndex) {
-                        return {
-                          ...msg,
-                          toolResult: toolResult.content,
-                          isStreaming: false
-                        };
-                      }
-                      return msg;
-                    });
-                  }
-                  return prev;
-                });
-              } else if (data.type === 'stream_event' && data.event?.type === 'message_delta' && data.event?.usage) {
-                // Update usage during streaming
-                const usage = data.event.usage;
-                setCurrentUsage({
-                  inputTokens: usage.input_tokens || 0,
-                  outputTokens: usage.output_tokens || 0,
-                  totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
-                  cachedInputTokens: usage.cache_read_input_tokens || 0,
-                  reasoningTokens: 0
-                });
-              } else if (data.type === 'result') {
-                handleResult(data);
-              } else if (data.type === 'complete') {
-                streamComplete = true;
-                break;
-              }
-            } catch (e) {
-              console.error('Error parsing SSE data:', e);
-            }
+      const result = await sendMessageWithRetry(prompt, sessionId);
+      if (!result.success) {
+        // If retry failed, attempt session recovery if we had a session
+        if (sessionId && retryCount < 3) {
+          setRetryCount(prev => prev + 1);
+          setSessionError(result.error || 'Session continuation failed');
+          
+          console.log('Attempting automatic session recovery');
+          const recoverySuccess = await attemptSessionRecovery(sessionId, prompt);
+          
+          if (!recoverySuccess) {
+            setSessionError('Unable to continue session. Please start a new conversation.');
           }
+        } else {
+          setSessionError(result.error || 'Failed to send message');
         }
       }
-
-      setIsStreaming(false);
-      setMessages(prev =>
-        prev.map((msg) =>
-          msg.isStreaming ? { ...msg, isStreaming: false } : msg
-        )
-      );
     } catch (error) {
-      console.error('Error streaming:', error);
-      setIsStreaming(false);
-      setMessages(prev =>
-        prev.map((msg) =>
-          msg.isStreaming ? { ...msg, isStreaming: false } : msg
-        )
-      );
+      console.error('Unexpected error in sendMessage:', error);
+      setSessionError('An unexpected error occurred');
     }
   };
 
