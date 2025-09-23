@@ -82,8 +82,13 @@ export function useClaudeChat(workingDirectory: string) {
     try {
       console.log('Loading conversation:', { projectPath, sessionId });
 
+      // Create properly encoded project ID to match backend
+      const projectId = projectPath.startsWith('/') 
+        ? '-' + projectPath.substring(1).replace(/\//g, '-')
+        : projectPath.replace(/\//g, '-');
+
       const conversation = await ChatHistoryAPI.getConversation(
-        encodeURIComponent(projectPath.replace(/\//g, '-')),
+        projectId,
         sessionId
       );
 
