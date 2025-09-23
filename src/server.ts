@@ -141,6 +141,126 @@ export class ClaudeAPIServer {
   }
 
   /**
+   * Setup session management routes
+   */
+  private setupSessionRoutes(): void {
+    // Session health check
+    this.app.get('/sessions/:sessionId/health', async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+        const health = await sessionManager.checkSessionHealth(sessionId);
+        res.json({
+          success: true,
+          sessionId,
+          health
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Session validation for continuation
+    this.app.post('/sessions/:sessionId/validate', async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+        const validation = await sessionManager.validateSessionForContinuation(sessionId);
+        res.json({
+          success: true,
+          sessionId,
+          validation
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Get session state
+    this.app.get('/sessions/:sessionId', async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+        const sessionState = sessionManager.getSessionState(sessionId);
+        const sessionMetadata = sessionStore.getSession(sessionId);
+        
+        if (!sessionState && !sessionMetadata) {
+          return res.status(404).json({
+            success: false,
+            error: 'Session not found'
+          });
+        }
+
+        res.json({
+          success: true,
+          sessionId,
+          state: sessionState,
+          metadata: sessionMetadata
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Get all active sessions
+    this.app.get('/sessions', async (req, res) => {
+      try {
+        const activeSessions = sessionManager.getActiveSessions();
+        const sessionStats = sessionManager.getSessionStats();
+        const storeStats = sessionStore.getStats();
+        
+        res.json({
+          success: true,
+          sessions: activeSessions,
+          stats: {
+            manager: sessionStats,
+            store: storeStats
+          }
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Session cleanup endpoint
+    this.app.post('/sessions/cleanup', async (req, res) => {
+      try {
+        sessionManager.cleanupInactiveSessions();
+        res.json({
+          success: true,
+          message: 'Session cleanup completed'
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Session backup endpoint
+    this.app.post('/sessions/backup', async (req, res) => {
+      try {
+        await sessionStore.performBackup();
+        res.json({
+          success: true,
+          message: 'Session backup completed'
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+
+    // Session restore endpoint
+    this.app.post('/sessions/restore', async (req, res) => {
+      try {
+        const { backupFile } = req.body;
+        const success = await sessionStore.restoreFromBackup(backupFile);
+        res.json({
+          success,
+          message: success ? 'Session restore completed' : 'Session restore failed'
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
+  }
+
+  /**
    * Validate incoming Claude request
    */
   private validateRequest(request: ClaudeRequest): { success: false; error: string } | null {
