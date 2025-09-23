@@ -288,9 +288,19 @@ export class ClaudeWrapper {
     
     // Handle session resumption vs new session
     if (sessionId) {
+      // For session continuation, use --resume with existing sessionId
       args.push('--resume', sessionId, '--print', prompt);
+      logger.debug('Building args for session continuation', 'ClaudeWrapper', {
+        sessionId,
+        promptLength: prompt.length
+      });
     } else {
+      // For new sessions, just use --print
       args.push('--print', prompt);
+      logger.debug('Building args for new session', 'ClaudeWrapper', {
+        model: model || 'sonnet',
+        promptLength: prompt.length
+      });
     }
     
     // Add common arguments
@@ -302,11 +312,12 @@ export class ClaudeWrapper {
     );
     
     // Add partial messages for streaming (not supported with --resume)
-    if (isStreaming) {
+    if (isStreaming && !sessionId) {
+      // Only add partial messages for new sessions
       args.push('--include-partial-messages');
     }
     
-    // Add model (only for new sessions)
+    // Add model (only for new sessions, Claude CLI ignores it for --resume)
     if (!sessionId) {
       const selectedModel = model || 'sonnet';
       args.push('--model', selectedModel);
