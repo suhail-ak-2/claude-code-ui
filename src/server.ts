@@ -259,6 +259,19 @@ export class ClaudeAPIServer {
         this.handleError(res, error);
       }
     });
+
+    // Error recovery system health check
+    this.app.get('/sessions/recovery/health', async (req, res) => {
+      try {
+        const health = await errorRecovery.performHealthCheck();
+        res.json({
+          success: true,
+          recoverySystem: health
+        });
+      } catch (error) {
+        this.handleError(res, error);
+      }
+    });
   }
 
   /**
