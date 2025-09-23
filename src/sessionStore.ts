@@ -225,7 +225,7 @@ export class SessionStore {
         sessions = sessions.filter(s => s.projectPath === filter.projectPath);
       }
       if (filter.since) {
-        sessions = sessions.filter(s => s.lastActivity > filter.since);
+        sessions = sessions.filter(s => s.lastActivity > filter.since!);
       }
     }
 
