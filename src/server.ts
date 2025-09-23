@@ -60,6 +60,7 @@ export class ClaudeAPIServer {
     this.setupStreamingRoute();
     this.setupAgentRoutes();
     this.setupChatHistoryRoutes();
+    this.setupSessionRoutes();
   }
 
   /**
