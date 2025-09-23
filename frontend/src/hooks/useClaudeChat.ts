@@ -592,11 +592,16 @@ export function useClaudeChat(workingDirectory: string) {
     agents,
     currentUsage,
     selectedModel,
+    sessionError,
+    retryCount,
+    isRecovering,
     setSelectedModel,
     sendMessage,
     startNewChat,
     loadConversation,
     createAgent,
-    loadAgents
+    loadAgents,
+    clearSessionError,
+    attemptSessionRecovery
   };
 }
