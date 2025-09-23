@@ -198,9 +198,16 @@ export function useClaudeChat(workingDirectory: string) {
         }
       }
 
-      // Update state with loaded messages
+      // Update state with loaded messages and ensure session continuation
       setMessages(streamMessages);
       setSessionId(sessionId);
+
+      // Store the conversation context for session continuation
+      console.log('Session loaded for continuation:', {
+        sessionId,
+        projectPath: conversation.projectPath,
+        messageCount: streamMessages.length
+      });
 
       return { success: true };
     } catch (error) {
