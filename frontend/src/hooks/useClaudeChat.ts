@@ -95,30 +95,60 @@ export function useClaudeChat(workingDirectory: string) {
     setIsRecovering(true);
     
     try {
-      // Try to continue with original sessionId one more time
-      const recoveryResult = await sendMessageWithRetry(prompt, originalSessionId, 1);
+      // Check session health first
+      const healthResponse = await fetch(`http://localhost:3000/sessions/${originalSessionId}/health`);
+      const healthData = await healthResponse.json();
       
-      if (recoveryResult.success) {
-        console.log('Session recovery successful');
-        setSessionError('');
-        setRetryCount(0);
-        setIsRecovering(false);
-        return true;
-      } else {
-        // If recovery fails, start a new session
-        console.log('Session recovery failed, starting new session');
-        setSessionId('');
-        setSessionError('');
-        setRetryCount(0);
+      console.log('Session health check:', healthData);
+      
+      if (healthData.success && healthData.health.isValid) {
+        // Session is healthy, try to continue
+        const recoveryResult = await sendMessageWithRetry(prompt, originalSessionId, 1);
         
-        const newSessionResult = await sendMessageWithRetry(prompt, undefined, 1);
-        setIsRecovering(false);
-        return newSessionResult.success;
+        if (recoveryResult.success) {
+          console.log('Session recovery successful');
+          setSessionError('');
+          setRetryCount(0);
+          setIsRecovering(false);
+          return true;
+        }
       }
+      
+      // Session is not healthy or retry failed, validate for continuation
+      const validationResponse = await fetch(`http://localhost:3000/sessions/${originalSessionId}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const validationData = await validationResponse.json();
+      
+      console.log('Session validation:', validationData);
+      
+      if (validationData.success && validationData.validation.shouldRetry) {
+        // Try one more time with the original session
+        const secondTryResult = await sendMessageWithRetry(prompt, originalSessionId, 1);
+        if (secondTryResult.success) {
+          console.log('Session recovery successful on second attempt');
+          setSessionError('');
+          setRetryCount(0);
+          setIsRecovering(false);
+          return true;
+        }
+      }
+      
+      // All recovery attempts failed, start new session
+      console.log('Session recovery failed, starting new session');
+      setSessionId('');
+      setSessionError('');
+      setRetryCount(0);
+      
+      const newSessionResult = await sendMessageWithRetry(prompt, undefined, 1);
+      setIsRecovering(false);
+      return newSessionResult.success;
+      
     } catch (error) {
       console.error('Session recovery error:', error);
       setIsRecovering(false);
-      setSessionError('Failed to recover session');
+      setSessionError('Failed to recover session. Please try starting a new conversation.');
       return false;
     }
   };
