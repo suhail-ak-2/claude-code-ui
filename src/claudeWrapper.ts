@@ -137,6 +137,42 @@ export class ClaudeWrapper {
       isStreaming: true
     });
 
+    // Enhanced session validation and recovery for continuation requests
+    if (request.sessionId) {
+      const validation = await sessionManager.validateSessionForContinuation(request.sessionId);
+      
+      if (!validation.canContinue) {
+        logger.warn('Session continuation validation failed', 'ClaudeWrapper', {
+          sessionId: request.sessionId,
+          validation
+        });
+
+        if (validation.shouldRetry) {
+          logger.info('Attempting session retry', 'ClaudeWrapper', {
+            sessionId: request.sessionId
+          });
+          // Mark as error but allow retry
+          sessionManager.markSessionError(request.sessionId, validation.error || 'Validation failed');
+        } else if (validation.shouldCreateNew) {
+          logger.warn('Creating new session due to continuation failure', 'ClaudeWrapper', {
+            sessionId: request.sessionId,
+            error: validation.error
+          });
+          // Clear the sessionId to start a new session
+          request.sessionId = undefined;
+        } else {
+          // Fatal error - cannot continue or create new
+          const error = `Session continuation failed: ${validation.error}`;
+          callback.onError(error);
+          throw new Error(error);
+        }
+      } else {
+        logger.debug('Session validation passed', 'ClaudeWrapper', {
+          sessionId: request.sessionId
+        });
+      }
+    }
+
     // Start telemetry tracking
     const executionId = telemetry.startClaudeExecution(
       request.sessionId,
