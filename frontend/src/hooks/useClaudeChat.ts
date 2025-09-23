@@ -336,7 +336,12 @@ export function useClaudeChat(workingDirectory: string) {
 
     try {
       // Build request with proper session continuation
-      const requestBody: any = {
+      const requestBody: {
+        prompt: string;
+        workingDirectory: string;
+        sessionId?: string;
+        model?: string;
+      } = {
         prompt,
         workingDirectory: workingDirectory,
       };
