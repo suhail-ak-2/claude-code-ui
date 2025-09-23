@@ -147,6 +147,16 @@ export class ClaudeAPIServer {
         error: 'Prompt is required and must be a non-empty string'
       };
     }
+
+    // For session continuation, model parameter is ignored (Claude CLI requirement)
+    // For new sessions, model parameter is optional and will default to 'sonnet'
+    if (!request.sessionId && request.model && typeof request.model !== 'string') {
+      return {
+        success: false,
+        error: 'Model must be a string when provided'
+      };
+    }
+
     return null;
   }
 
