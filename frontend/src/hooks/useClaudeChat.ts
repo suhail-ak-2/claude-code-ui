@@ -38,6 +38,9 @@ export function useClaudeChat(workingDirectory: string) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4-20250514');
+  const [sessionError, setSessionError] = useState<string>('');
+  const [retryCount, setRetryCount] = useState<number>(0);
+  const [isRecovering, setIsRecovering] = useState<boolean>(false);
   const [currentUsage, setCurrentUsage] = useState<{
     inputTokens: number;
     outputTokens: number;
