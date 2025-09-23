@@ -79,6 +79,48 @@ export function useClaudeChat(workingDirectory: string) {
   const startNewChat = () => {
     setMessages([]);
     setSessionId('');
+    setSessionError('');
+    setRetryCount(0);
+    setIsRecovering(false);
+  };
+
+  const clearSessionError = () => {
+    setSessionError('');
+    setRetryCount(0);
+    setIsRecovering(false);
+  };
+
+  const attemptSessionRecovery = async (originalSessionId: string, prompt: string) => {
+    console.log('Attempting session recovery for:', originalSessionId);
+    setIsRecovering(true);
+    
+    try {
+      // Try to continue with original sessionId one more time
+      const recoveryResult = await sendMessageWithRetry(prompt, originalSessionId, 1);
+      
+      if (recoveryResult.success) {
+        console.log('Session recovery successful');
+        setSessionError('');
+        setRetryCount(0);
+        setIsRecovering(false);
+        return true;
+      } else {
+        // If recovery fails, start a new session
+        console.log('Session recovery failed, starting new session');
+        setSessionId('');
+        setSessionError('');
+        setRetryCount(0);
+        
+        const newSessionResult = await sendMessageWithRetry(prompt, undefined, 1);
+        setIsRecovering(false);
+        return newSessionResult.success;
+      }
+    } catch (error) {
+      console.error('Session recovery error:', error);
+      setIsRecovering(false);
+      setSessionError('Failed to recover session');
+      return false;
+    }
   };
 
   const loadConversation = async (projectPath: string, sessionId: string) => {
