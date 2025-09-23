@@ -200,6 +200,9 @@ export class SessionManager {
       sessionState.isActive = sessionState.retryCount < this.maxRetries;
       this.sessionStates.set(sessionId, sessionState);
       
+      // Update persistent storage
+      sessionStore.markSessionError(sessionId, error);
+      
       logger.warn('Session marked with error', 'SessionManager', {
         sessionId,
         error,
