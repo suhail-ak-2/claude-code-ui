@@ -385,6 +385,7 @@ export class ClaudeAPIServer {
     console.log(`🤖 Claude execute: POST http://localhost:${this.port}/claude/execute`);
     console.log(`📡 Claude stream: POST http://localhost:${this.port}/claude/stream`);
     console.log(`👥 Agent management: http://localhost:${this.port}/agents`);
+    console.log(`🔄 Session management: http://localhost:${this.port}/sessions`);
   }
 
   /**
