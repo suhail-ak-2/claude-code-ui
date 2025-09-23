@@ -47,7 +47,7 @@ Based on the system initialization, the following tools are available:
 {
   "name": "Read",
   "input": {
-    "file_path": "/Users/suhail/Documents/claude-cli-api/package.json"
+    "file_path": "/Users/suhail/Documents/claude-code-ui/package.json"
   }
 }
 ```
@@ -80,7 +80,7 @@ Based on the system initialization, the following tools are available:
 {
   "name": "Write", 
   "input": {
-    "file_path": "/Users/suhail/Documents/claude-cli-api/test.txt",
+    "file_path": "/Users/suhail/Documents/claude-code-ui/test.txt",
     "content": "hello world"
   }
 }
@@ -114,7 +114,7 @@ Based on the system initialization, the following tools are available:
 {
   "name": "Edit",
   "input": {
-    "file_path": "/Users/suhail/Documents/claude-cli-api/test.txt", 
+    "file_path": "/Users/suhail/Documents/claude-code-ui/test.txt", 
     "old_string": "hello world",
     "new_string": "hello claude"
   }

@@ -20,7 +20,7 @@ event: data
 data: {
   "type": "system",
   "subtype": "init",
-  "cwd": "/Users/suhail/Documents/claude-cli-api",
+  "cwd": "/Users/suhail/Documents/claude-code-ui",
   "session_id": "7afc20ff-f419-424c-8a01-0701426047c5",
   "tools": ["Task","Bash","Glob","Grep","ExitPlanMode","Read","Edit","MultiEdit","Write","NotebookEdit","WebFetch","TodoWrite","WebSearch","BashOutput","KillBash"],
   "mcp_servers": [],

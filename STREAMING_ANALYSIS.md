@@ -26,7 +26,7 @@ Provides session context and available capabilities.
 {
   "type": "system",
   "subtype": "init", 
-  "cwd": "/Users/suhail/Documents/claude-cli-api",
+  "cwd": "/Users/suhail/Documents/claude-code-ui",
   "session_id": "5a3a974f-5cfc-47f6-9279-7fb11b6b2f8c",
   "tools": ["Task","Bash","Glob","Grep","ExitPlanMode","Read","Edit","MultiEdit","Write","NotebookEdit","WebFetch","TodoWrite","WebSearch","BashOutput","KillBash"],
   "mcp_servers": [],

@@ -1,5 +1,6 @@
 import * as pty from 'node-pty';
 import * as fs from 'fs';
+import * as path from 'path';
 import { ClaudeRequest, ClaudeResponse, ClaudeOptions, StreamingCallback } from './types';
 import { logger, telemetry } from './logging';
 
@@ -202,7 +203,7 @@ export class ClaudeWrapper {
     options: ClaudeOptions | undefined
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const args = this.buildClaudeArgs(prompt, model, options, false);
+      const args = this.buildClaudeArgs(prompt, model, options, false, undefined, workingDirectory);
       const process = this.spawnClaudeProcess(args, workingDirectory);
       
       let stdout = '';
@@ -215,7 +216,23 @@ export class ClaudeWrapper {
         if (exitCode.exitCode === 0) {
           resolve(stdout || 'No output received');
         } else {
-          reject(new Error(`Claude CLI exited with code ${exitCode.exitCode}`));
+          // Create detailed error with process output and diagnostics
+          const errorDetails = {
+            exitCode: exitCode.exitCode,
+            signal: exitCode.signal,
+            command: this.claudePath,
+            args: args,
+            workingDirectory: workingDirectory,
+            stdout: stdout,
+            stdoutLength: stdout.length,
+            lastOutput: stdout.slice(-1000) // Last 1000 chars for debugging
+          };
+
+          const errorMessage = `Claude CLI exited with code ${exitCode.exitCode}${exitCode.signal ? ` (signal: ${exitCode.signal})` : ''}. Output details: ${JSON.stringify(errorDetails, null, 2)}`;
+
+          logger.error('Claude CLI process exit with error (non-streaming)', 'ClaudeWrapper', errorDetails);
+
+          reject(new Error(errorMessage));
         }
       });
 
@@ -235,17 +252,19 @@ export class ClaudeWrapper {
     callback: StreamingCallback
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const args = this.buildClaudeArgs(prompt, model, options, true, sessionId);
+      const args = this.buildClaudeArgs(prompt, model, options, true, sessionId, workingDirectory);
       const process = this.spawnClaudeProcess(args, workingDirectory);
-      
+
       let stdout = '';
+      let stderr = '';
       let detectedSessionId = '';
       let buffer = '';
+      let processExited = false;
 
       process.onData((data) => {
         const cleanOutput = this.cleanOutput(data.toString());
         buffer += cleanOutput;
-        
+
         buffer = this.parseStreamingJSON(buffer, (parsedJson) => {
           if (parsedJson && Object.keys(parsedJson).length > 0) {
             if (parsedJson.session_id) {
@@ -260,17 +279,43 @@ export class ClaudeWrapper {
       });
 
       process.onExit((exitCode) => {
+        processExited = true;
         if (exitCode.exitCode === 0) {
           callback.onComplete(detectedSessionId || sessionId || '');
           resolve(stdout || 'No output received');
         } else {
-          const error = `Claude CLI exited with code ${exitCode.exitCode}`;
-          callback.onError(error);
-          reject(new Error(error));
+          // Create detailed error with process output and diagnostics
+          const errorDetails = {
+            exitCode: exitCode.exitCode,
+            signal: exitCode.signal,
+            command: this.claudePath,
+            args: args,
+            workingDirectory: workingDirectory,
+            stdout: stdout,
+            rawBuffer: buffer,
+            stdoutLength: stdout.length,
+            bufferLength: buffer.length,
+            lastBuffer: buffer.slice(-1000), // Last 1000 chars for debugging
+            detectedSessionId
+          };
+
+          const errorMessage = `Claude CLI exited with code ${exitCode.exitCode}${exitCode.signal ? ` (signal: ${exitCode.signal})` : ''}. Output details: ${JSON.stringify(errorDetails, null, 2)}`;
+
+          logger.error('Claude CLI process exit with error', 'ClaudeWrapper', errorDetails);
+
+          callback.onError(errorMessage);
+          reject(new Error(errorMessage));
         }
       });
 
-      this.setupTimeout(process, reject, callback);
+      this.setupTimeoutWithDiagnostics(process, reject, callback, {
+        getStdout: () => stdout,
+        getStderr: () => stderr,
+        getBuffer: () => buffer,
+        args,
+        workingDirectory,
+        processExited: () => processExited
+      });
     });
   }
 
@@ -282,7 +327,8 @@ export class ClaudeWrapper {
     model: string | undefined,
     options: ClaudeOptions | undefined,
     isStreaming: boolean,
-    sessionId?: string
+    sessionId?: string,
+    workingDirectory?: string
   ): string[] {
     const args: string[] = [];
     
@@ -297,9 +343,14 @@ export class ClaudeWrapper {
     args.push(
       '--output-format', 'stream-json',
       '--verbose',
-      '--permission-mode', 'bypassPermissions',
-      '--mcp-config', '.mcp.json'
+      '--permission-mode', 'bypassPermissions'
     );
+
+    // Add MCP config only if it exists in the working directory
+    const mcpConfigPath = this.getMcpConfigPath(workingDirectory);
+    if (mcpConfigPath) {
+      args.push('--mcp-config', mcpConfigPath);
+    }
     
     // Add partial messages for streaming (not supported with --resume)
     if (isStreaming) {
@@ -390,8 +441,8 @@ export class ClaudeWrapper {
    * Setup timeout for Claude CLI process
    */
   private setupTimeout(
-    process: pty.IPty, 
-    reject: (error: Error) => void, 
+    process: pty.IPty,
+    reject: (error: Error) => void,
     callback?: StreamingCallback
   ): void {
     setTimeout(() => {
@@ -402,6 +453,83 @@ export class ClaudeWrapper {
       }
       reject(new Error(errorMessage));
     }, this.commandTimeout);
+  }
+
+  /**
+   * Setup timeout with enhanced diagnostics for Claude CLI process
+   */
+  private setupTimeoutWithDiagnostics(
+    process: pty.IPty,
+    reject: (error: Error) => void,
+    callback: StreamingCallback,
+    diagnostics: {
+      getStdout: () => string;
+      getStderr: () => string;
+      getBuffer: () => string;
+      args: string[];
+      workingDirectory: string | undefined;
+      processExited: () => boolean;
+    }
+  ): void {
+    const timeoutId = setTimeout(() => {
+      const processExited = diagnostics.processExited();
+
+      // Try to get process status before killing
+      let processInfo = '';
+      try {
+        if (!processExited && process.pid) {
+          processInfo = ` (PID: ${process.pid})`;
+        }
+      } catch (e) {
+        // Ignore process status check errors
+      }
+
+      // Kill the process if it hasn't exited
+      if (!processExited) {
+        try {
+          process.kill('SIGTERM');
+          // Give it a moment to terminate gracefully, then force kill
+          setTimeout(() => {
+            if (!diagnostics.processExited()) {
+              process.kill('SIGKILL');
+            }
+          }, 1000);
+        } catch (e) {
+          // Process may have already exited
+        }
+      }
+
+      // Create detailed error message with diagnostics
+      const stdout = diagnostics.getStdout();
+      const buffer = diagnostics.getBuffer();
+      const errorDetails = {
+        reason: 'timeout',
+        timeoutMs: this.commandTimeout,
+        processExited,
+        processInfo,
+        command: this.claudePath,
+        args: diagnostics.args,
+        workingDirectory: diagnostics.workingDirectory,
+        lastStdout: stdout.slice(-500), // Last 500 chars
+        lastBuffer: buffer.slice(-500), // Last 500 chars of raw buffer
+        stdoutLength: stdout.length,
+        bufferLength: buffer.length
+      };
+
+      const errorMessage = `Claude CLI command timed out after ${this.commandTimeout}ms. Process details: ${JSON.stringify(errorDetails, null, 2)}`;
+
+      logger.error('Claude CLI timeout with diagnostics', 'ClaudeWrapper', errorDetails);
+
+      if (callback) {
+        callback.onError(errorMessage);
+      }
+      reject(new Error(errorMessage));
+    }, this.commandTimeout);
+
+    // Clear timeout if process exits normally
+    process.onExit(() => {
+      clearTimeout(timeoutId);
+    });
   }
 
   /**
@@ -453,6 +581,27 @@ export class ClaudeWrapper {
     }
     
     return remaining.substring(start);
+  }
+
+  /**
+   * Get MCP config path if it exists in the working directory
+   */
+  private getMcpConfigPath(workingDirectory?: string): string | null {
+    const baseDir = workingDirectory || process.cwd();
+    const mcpConfigPath = path.resolve(baseDir, '.mcp.json');
+
+    try {
+      if (fs.existsSync(mcpConfigPath)) {
+        return '.mcp.json'; // Use relative path for Claude CLI
+      }
+    } catch (error) {
+      logger.debug('Error checking for MCP config file', 'ClaudeWrapper', {
+        mcpConfigPath,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
+    return null;
   }
 
   /**

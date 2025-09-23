@@ -24,7 +24,7 @@ import { ChatHistoryAPI } from '@/lib/chat-history-api';
 export default function ClaudeChatInterface() {
   const [inputText, setInputText] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [workingDirectory, setWorkingDirectory] = useState('/Users/suhail/Documents/claude-cli-api');
+  const [workingDirectory, setWorkingDirectory] = useState('/Users/suhail/Documents/claude-code-ui');
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [showCommandDropdown, setShowCommandDropdown] = useState(false);
   const [agentFormData, setAgentFormData] = useState<CreateAgentRequest>({
