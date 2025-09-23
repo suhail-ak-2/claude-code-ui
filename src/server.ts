@@ -373,7 +373,8 @@ export class ClaudeAPIServer {
         execute: `POST http://localhost:${this.port}/claude/execute`,
         stream: `POST http://localhost:${this.port}/claude/stream`,
         agents: `http://localhost:${this.port}/agents`,
-        chatHistory: `http://localhost:${this.port}/chat-history`
+        chatHistory: `http://localhost:${this.port}/chat-history`,
+        sessions: `http://localhost:${this.port}/sessions`
       },
       environment: process.env.NODE_ENV || 'development'
     });
