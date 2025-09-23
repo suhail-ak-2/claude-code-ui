@@ -183,6 +183,9 @@ export class SessionManager {
       sessionState.isActive = true;
       sessionState.messageCount++;
       this.sessionStates.set(sessionId, sessionState);
+      
+      // Update persistent storage
+      sessionStore.updateSessionActivity(sessionId);
     }
   }
 
