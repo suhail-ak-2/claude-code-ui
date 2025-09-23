@@ -5,6 +5,8 @@ import { ClaudeWrapper } from './claudeWrapper';
 import { AgentRoutes } from './agentRoutes';
 import { chatHistoryRoutes } from './chatHistoryRoutes';
 import { ClaudeRequest, StreamingCallback } from './types';
+import { sessionManager } from './sessionManager';
+import { sessionStore } from './sessionStore';
 import { 
   logger, 
   telemetryMiddleware, 
