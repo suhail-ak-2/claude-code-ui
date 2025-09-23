@@ -7,6 +7,7 @@ import { chatHistoryRoutes } from './chatHistoryRoutes';
 import { ClaudeRequest, StreamingCallback } from './types';
 import { sessionManager } from './sessionManager';
 import { sessionStore } from './sessionStore';
+import { errorRecovery } from './errorRecovery';
 import { 
   logger, 
   telemetryMiddleware, 
