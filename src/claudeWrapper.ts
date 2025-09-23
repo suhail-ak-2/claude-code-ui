@@ -183,7 +183,7 @@ export class ClaudeWrapper {
       true
     );
 
-    // Wrap callback to add telemetry
+    // Wrap callback to add telemetry and session management
     const telemetryCallback: StreamingCallback = {
       onData: (data: any) => {
         logger.debug('Claude CLI streaming data received', 'ClaudeWrapper', {
@@ -191,9 +191,24 @@ export class ClaudeWrapper {
           dataType: data.type,
           sessionId: data.session_id
         });
+        
+        // Register or update session when we receive a session_id
+        if (data.session_id && request.workingDirectory) {
+          sessionManager.registerSession(
+            data.session_id, 
+            request.workingDirectory, 
+            request.model
+          );
+        }
+        
         callback.onData(data);
       },
       onError: (error: string) => {
+        // Mark session as having an error
+        if (request.sessionId) {
+          sessionManager.markSessionError(request.sessionId, error);
+        }
+        
         telemetry.completeClaudeExecution(executionId, false, error);
         telemetry.recordError(
           'ClaudeWrapper',
@@ -205,11 +220,17 @@ export class ClaudeWrapper {
         );
         logger.error('Claude CLI streaming error', 'ClaudeWrapper', {
           executionId,
-          error
+          error,
+          sessionId: request.sessionId
         });
         callback.onError(error);
       },
       onComplete: (sessionId: string) => {
+        // Update session activity on successful completion
+        if (sessionId) {
+          sessionManager.updateSessionActivity(sessionId);
+        }
+        
         telemetry.completeClaudeExecution(executionId, true);
         logger.info('Claude CLI streaming completed', 'ClaudeWrapper', {
           executionId,
