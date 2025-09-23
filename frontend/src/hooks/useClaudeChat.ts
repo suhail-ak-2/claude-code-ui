@@ -367,8 +367,45 @@ export function useClaudeChat(workingDirectory: string) {
     }
   };
 
+  const sendMessageWithRetry = async (
+    prompt: string, 
+    useSessionId?: string, 
+    maxRetries: number = 3
+  ): Promise<{ success: boolean; error?: string }> => {
+    let currentRetry = 0;
+    
+    while (currentRetry < maxRetries) {
+      try {
+        const success = await performSendMessage(prompt, useSessionId);
+        if (success) {
+          return { success: true };
+        }
+        
+        currentRetry++;
+        if (currentRetry < maxRetries) {
+          console.log(`Send message retry ${currentRetry}/${maxRetries}`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * currentRetry)); // Exponential backoff
+        }
+      } catch (error) {
+        console.error(`Send message attempt ${currentRetry + 1} failed:`, error);
+        currentRetry++;
+        
+        if (currentRetry < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * currentRetry));
+        } else {
+          return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+      }
+    }
+    
+    return { success: false, error: 'Max retries exceeded' };
+  };
+
   const sendMessage = async (prompt: string) => {
     if (!prompt.trim() || isStreaming) return;
+
+    // Clear any previous session errors
+    setSessionError('');
 
     const userMessage: StreamMessage = {
       id: Date.now().toString(),
