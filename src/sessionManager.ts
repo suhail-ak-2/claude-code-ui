@@ -143,19 +143,28 @@ export class SessionManager {
    */
   registerSession(sessionId: string, projectPath: string, model?: string): void {
     const existingState = this.sessionStates.get(sessionId);
+    const existingStored = sessionStore.getSession(sessionId);
     
     const sessionState: SessionState = {
       sessionId,
       projectPath,
       isActive: true,
       lastActivity: Date.now(),
-      createdAt: existingState?.createdAt || Date.now(),
-      messageCount: existingState?.messageCount || 0,
+      createdAt: existingState?.createdAt || existingStored?.createdAt || Date.now(),
+      messageCount: existingState?.messageCount || existingStored?.messageCount || 0,
       model,
       retryCount: 0
     };
 
     this.sessionStates.set(sessionId, sessionState);
+    
+    // Store in persistent storage
+    const storeMetadata: SessionMetadata = {
+      ...sessionState,
+      tags: ['active'],
+      customData: { model }
+    };
+    sessionStore.storeSession(storeMetadata);
     
     logger.debug('Session registered', 'SessionManager', {
       sessionId,
