@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 import * as fs from 'fs';
 import { ClaudeRequest, ClaudeResponse, ClaudeOptions, StreamingCallback } from './types';
 import { logger, telemetry } from './logging';
+import { sessionManager } from './sessionManager';
 
 /**
  * Wrapper class for Claude CLI using node-pty for persistent session support
