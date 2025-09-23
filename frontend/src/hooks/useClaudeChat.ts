@@ -335,17 +335,28 @@ export function useClaudeChat(workingDirectory: string) {
     setIsStreaming(true);
 
     try {
+      // Build request with proper session continuation
+      const requestBody: any = {
+        prompt,
+        workingDirectory: workingDirectory,
+      };
+
+      // Add sessionId if we have one for continuation
+      if (sessionId) {
+        requestBody.sessionId = sessionId;
+        console.log('Continuing session:', sessionId);
+      } else {
+        // Only set model for new sessions (Claude CLI requirement)
+        requestBody.model = selectedModel;
+        console.log('Starting new session with model:', selectedModel);
+      }
+
       const response = await fetch('http://localhost:3000/claude/stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          prompt,
-          sessionId: sessionId || undefined,
-          workingDirectory: workingDirectory,
-          model: selectedModel,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.body) throw new Error('No response body');
