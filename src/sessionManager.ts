@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
 import { logger } from './logging';
+import { sessionStore, SessionMetadata } from './sessionStore';
 
 /**
  * Session state information
