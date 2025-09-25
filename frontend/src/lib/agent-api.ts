@@ -20,7 +20,7 @@ export interface CreateAgentRequest {
   color?: string;
   isGlobal?: boolean;
   workingDirectory?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentResponse {

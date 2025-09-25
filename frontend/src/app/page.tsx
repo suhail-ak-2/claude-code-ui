@@ -3,7 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { Conversation } from '@/components/ai-elements/conversation';
 import { type PromptInputMessage } from '@/components/ai-elements/prompt-input';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Loader } from '@/components/ai-elements/loader';
 import { Bot } from 'lucide-react';
 
 // Custom components
@@ -19,7 +19,7 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 
 // Types
 import { type Agent, type CreateAgentRequest } from '@/lib/agent-api';
-import { ChatHistoryAPI } from '@/lib/chat-history-api';
+
 
 export default function ClaudeChatInterface() {
   const [inputText, setInputText] = useState('');
@@ -42,6 +42,7 @@ export default function ClaudeChatInterface() {
     messages,
     sessionId,
     isStreaming,
+    isLoadingConversation,
     agents,
     currentUsage,
     selectedModel,
@@ -122,6 +123,8 @@ export default function ClaudeChatInterface() {
 
       if (result.success) {
         console.log('Successfully loaded conversation');
+        // Ensure sidebar stays open after loading conversation
+        setSidebarOpen(true);
       } else {
         alert(result.error || 'Failed to load conversation');
       }
@@ -135,7 +138,7 @@ export default function ClaudeChatInterface() {
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">
       {/* Sidebar */}
-      {sidebarOpen && (
+      <div className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all duration-300 overflow-hidden flex-shrink-0`}>
         <Sidebar
           sessionId={sessionId}
           workingDirectory={workingDirectory}
@@ -143,10 +146,10 @@ export default function ClaudeChatInterface() {
           startNewChat={startNewChat}
           onConversationSelect={handleConversationSelect}
         />
-      )}
+      </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <Header
           sidebarOpen={sidebarOpen}
@@ -158,31 +161,45 @@ export default function ClaudeChatInterface() {
         />
 
         {/* Messages */}
-        <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
-            {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full min-h-[60vh]">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                    <Bot className="w-8 h-8 text-white" />
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full max-w-4xl mx-auto px-4">
+            <Conversation className="h-full w-full">
+              {isLoadingConversation ? (
+                <div className="flex items-center justify-center h-full min-h-[60vh]">
+                  <div className="text-center">
+                    <div className="mb-4">
+                      <Loader />
+                    </div>
+                    <h2 className="text-xl font-medium text-gray-800 dark:text-gray-200 mb-2">
+                      Loading conversation...
+                    </h2>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      Please wait while we load your conversation history.
+                    </p>
                   </div>
-                  <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                    How can I help you today?
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-400">
-                    I&apos;m Claude CLI - I can help with coding, file operations, and more!
-                  </p>
                 </div>
-              </div>
-            ) : (
-              <Conversation className="py-8">
-                {messages.map((message) => (
+              ) : messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full min-h-[60vh]">
+                  <div className="text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                      <Bot className="w-8 h-8 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                      How can I help you today?
+                    </h2>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      I&apos;m Claude CLI - I can help with coding, file operations, and more!
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                messages.map((message) => (
                   <ChatMessage key={message.id} message={message} />
-                ))}
-              </Conversation>
-            )}
+                ))
+              )}
+            </Conversation>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Input Area */}
         <InputArea

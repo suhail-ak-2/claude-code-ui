@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AgentAPI, type Agent, type CreateAgentRequest } from '@/lib/agent-api';
-import { ChatHistoryAPI, type ConversationMessage } from '@/lib/chat-history-api';
+import { ChatHistoryAPI } from '@/lib/chat-history-api';
 
 interface StreamMessage {
   id: string;
@@ -10,19 +10,25 @@ interface StreamMessage {
   content: string;
   type?: 'text' | 'tool_use' | 'tool_result';
   toolName?: string;
-  toolInput?: any;
+  toolInput?: Record<string, unknown> | string;
   toolResult?: string;
   isStreaming?: boolean;
+  hasImages?: boolean;
+  images?: Array<{
+    data: string;
+    media_type: string;
+    alt?: string;
+  }>;
 }
 
 interface StreamEvent {
   type: string;
   subtype?: string;
   session_id?: string;
-  event?: any;
+  event?: Record<string, unknown>;
   result?: string;
   is_error?: boolean;
-  usage?: any;
+  usage?: Record<string, unknown>;
   message?: {
     content: Array<{
       type: string;
@@ -36,6 +42,7 @@ export function useClaudeChat(workingDirectory: string) {
   const [messages, setMessages] = useState<StreamMessage[]>([]);
   const [sessionId, setSessionId] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4-20250514');
   const [currentUsage, setCurrentUsage] = useState<{
@@ -80,6 +87,7 @@ export function useClaudeChat(workingDirectory: string) {
 
   const loadConversation = async (projectPath: string, sessionId: string) => {
     try {
+      setIsLoadingConversation(true);
       console.log('Loading conversation:', { projectPath, sessionId });
 
       const conversation = await ChatHistoryAPI.getConversation(
@@ -92,49 +100,108 @@ export function useClaudeChat(workingDirectory: string) {
 
       // Convert conversation messages to StreamMessage format
       const streamMessages: StreamMessage[] = [];
+      const toolUseMap = new Map<string, StreamMessage>(); // Track tool uses by their ID
 
       for (let i = 0; i < conversation.messages.length; i++) {
         const msg = conversation.messages[i];
-        console.log(`Processing message ${i + 1}:`, { type: msg.type, hasMessage: !!msg.message });
+        console.log(`Processing message ${i + 1}:`, { type: msg.type, role: msg.message?.role });
 
         try {
-          if (msg.type === 'user' && msg.message?.content) {
-            // Handle user messages
-            let content = '';
+          // Skip sidechain messages (these are sub-agent conversations)
+          if (msg.isSidechain) {
+            console.log(`Skipped sidechain message`);
+            continue;
+          }
 
-            if (Array.isArray(msg.message.content)) {
-              // Handle array content format
-              content = msg.message.content
-                .map(c => {
-                  if (typeof c === 'string') return c;
-                  if (c && typeof c === 'object' && 'text' in c) return c.text;
-                  if (c && typeof c === 'object' && 'type' in c && c.type === 'text') return c.text;
-                  return JSON.stringify(c);
-                })
-                .filter(Boolean)
-                .join(' ');
-            } else if (typeof msg.message.content === 'string') {
-              content = msg.message.content;
-            } else {
-              content = JSON.stringify(msg.message.content);
-            }
-
-            if (content.trim()) {
-              streamMessages.push({
-                id: msg.uuid,
-                role: 'user',
-                content: content,
-                type: 'text'
-              });
-              console.log(`Added user message: "${content.substring(0, 50)}..."`);
-            }
-          } else if (msg.type === 'assistant' && msg.message?.content) {
-            // Handle assistant messages - may include text and tool uses
+          if (msg.type === 'user' && msg.message?.role === 'user') {
+            // Handle user messages - content can be string or array (for mixed content or tool results)
             const content = msg.message.content;
+            
+            if (typeof content === 'string') {
+              // Regular user message
+              if (content.trim()) {
+                streamMessages.push({
+                  id: msg.uuid,
+                  role: 'user',
+                  content: content.trim(),
+                  type: 'text'
+                });
+                console.log(`Added user message: "${content.substring(0, 50)}..."`);
+              }
+            } else if (Array.isArray(content)) {
+              // Array content - could be tool results or mixed content (text + images)
+              let hasToolResults = false;
+              let textContent = '';
+              let hasImages = false;
+              const imageData: Array<{ data: string; media_type: string; alt?: string }> = [];
+              
+              // Check if this is a tool result message or mixed content message
+              for (const item of content) {
+                if (item.type === 'tool_result' && item.tool_use_id && typeof item.tool_use_id === 'string') {
+                  // This is a tool result message
+                  hasToolResults = true;
+                  const toolMessage = toolUseMap.get(item.tool_use_id);
+                  if (toolMessage) {
+                    // Handle tool result content - empty results are still valid completions
+                    let resultContent = '';
+                    if (typeof item.content === 'string') {
+                      resultContent = item.content;
+                    } else if (item.content) {
+                      resultContent = JSON.stringify(item.content);
+                    }
+                    
+                    // Check if we have stdout/stderr in the message's toolUseResult
+                    const toolUseResult = msg.toolUseResult;
+                    if (toolUseResult && (toolUseResult.stdout || toolUseResult.stderr)) {
+                      const output = [];
+                      if (toolUseResult.stdout) output.push(`stdout: ${toolUseResult.stdout}`);
+                      if (toolUseResult.stderr) output.push(`stderr: ${toolUseResult.stderr}`);
+                      resultContent = output.length > 0 ? output.join('\
+') : resultContent;
+                    }
+                    
+                    // Set result (even if empty) and mark as completed
+                    toolMessage.toolResult = resultContent || '(No output)';
+                    toolMessage.isStreaming = false;
+                    console.log(`Added tool result for ${toolMessage.toolName} (ID: ${item.tool_use_id}): ${resultContent ? 'with content' : 'empty result'}`);
+                  }
+                } else if (item.type === 'text' && item.text) {
+                  // Text content in mixed message
+                  textContent += item.text;
+                } else if (item.type === 'image' && item.source && typeof item.source === 'object' && 
+                          'data' in item.source && 'media_type' in item.source &&
+                          typeof item.source.data === 'string' && typeof item.source.media_type === 'string') {
+                  // Image content in mixed message
+                  hasImages = true;
+                  imageData.push({
+                    data: item.source.data,
+                    media_type: item.source.media_type,
+                    alt: `Image ${imageData.length + 1}`
+                  });
+                }
+              }
+              
+              // If this is not a tool result message, create a user message
+              if (!hasToolResults && (textContent.trim() || hasImages)) {
+                const displayContent = textContent.trim() || (hasImages ? '[Image attached]' : '');
+                streamMessages.push({
+                  id: msg.uuid,
+                  role: 'user',
+                  content: displayContent,
+                  type: 'text',
+                  hasImages: hasImages,
+                  images: imageData.length > 0 ? imageData : undefined
+                });
+                console.log(`Added mixed user message: "${displayContent.substring(0, 50)}..." (hasImages: ${hasImages})`);
+              }
+            }
+          } else if (msg.type === 'assistant' && msg.message?.role === 'assistant') {
+            // Handle assistant messages - content is array of objects
+            const assistantContent = msg.message.content;
 
-            if (Array.isArray(content)) {
-              for (let j = 0; j < content.length; j++) {
-                const block = content[j];
+            if (Array.isArray(assistantContent)) {
+              for (let j = 0; j < assistantContent.length; j++) {
+                const block = assistantContent[j];
                 console.log(`Processing assistant block ${j + 1}:`, { type: block.type });
 
                 if (block.type === 'text' && block.text) {
@@ -146,30 +213,34 @@ export function useClaudeChat(workingDirectory: string) {
                   });
                   console.log(`Added assistant text: "${block.text.substring(0, 50)}..."`);
                 } else if (block.type === 'tool_use') {
-                  streamMessages.push({
-                    id: `${msg.uuid}-tool-${block.id}`,
+                  const toolBlock = block as { type: 'tool_use'; id: string; name: string; input?: Record<string, unknown> };
+                  const toolMessage: StreamMessage = {
+                    id: `${msg.uuid}-tool-${toolBlock.id}`,
                     role: 'assistant',
-                    content: `Using ${block.name}`,
+                    content: `Using ${toolBlock.name}`,
                     type: 'tool_use',
-                    toolName: block.name,
-                    toolInput: JSON.stringify(block.input || {}) as string,
+                    toolName: toolBlock.name,
+                    toolInput: toolBlock.input || {},
                     toolResult: '', // Will be filled by tool results
-                    isStreaming: false
-                  });
-                  console.log(`Added tool use: ${block.name}`);
+                    isStreaming: true // Will be set to false when tool result is received
+                  };
+                  
+                  streamMessages.push(toolMessage);
+                  toolUseMap.set(toolBlock.id, toolMessage); // Track for later tool result matching
+                  console.log(`Added tool use: ${toolBlock.name} (ID: ${toolBlock.id})`);
                 }
               }
-            } else if (typeof content === 'string') {
+            } else if (typeof assistantContent === 'string') {
               streamMessages.push({
                 id: msg.uuid,
                 role: 'assistant',
-                content,
+                content: assistantContent,
                 type: 'text'
               });
-              console.log(`Added assistant string: "${content.substring(0, 50)}..."`);
+              console.log(`Added assistant string: "${assistantContent.substring(0, 50)}..."`);
             }
           } else {
-            console.log(`Skipped message type: ${msg.type}`);
+            console.log(`Skipped message type: ${msg.type}, role: ${msg.message?.role}`);
           }
         } catch (msgError) {
           console.error(`Error processing message ${i + 1}:`, msgError, msg);
@@ -177,20 +248,21 @@ export function useClaudeChat(workingDirectory: string) {
       }
 
       console.log(`Converted ${streamMessages.length} messages for display`);
+      console.log(`Matched ${Array.from(toolUseMap.values()).filter(t => t.toolResult).length} tool results`);
+
+      // Mark any remaining tool messages as completed (no result found)
+      Array.from(toolUseMap.values()).forEach(toolMsg => {
+        if (toolMsg.isStreaming) {
+          toolMsg.isStreaming = false;
+          if (!toolMsg.toolResult) {
+            toolMsg.toolResult = '(No output)';
+          }
+          console.log(`Marked tool ${toolMsg.toolName} as completed (${toolMsg.toolResult === '(No output)' ? 'no result' : 'with result'})`);
+        }
+      });
 
       if (streamMessages.length === 0) {
         console.warn('No displayable messages found in conversation. This might be a summary-only or metadata-only conversation.');
-
-        // Create a placeholder message indicating this is a summary-only conversation
-        const summaryMessage = conversation.messages.find(m => m.type === 'summary');
-        if (summaryMessage) {
-          streamMessages.push({
-            id: 'summary-placeholder',
-            role: 'assistant',
-            content: `This conversation appears to be a summary or metadata-only entry. No chat messages were found to display.`,
-            type: 'text'
-          });
-        }
       }
 
       // Update state with loaded messages
@@ -201,21 +273,39 @@ export function useClaudeChat(workingDirectory: string) {
     } catch (error) {
       console.error('Failed to load conversation:', error);
       return { success: false, error: 'Failed to load conversation' };
+    } finally {
+      setIsLoadingConversation(false);
     }
   };
 
   const handleStreamEvent = (data: StreamEvent) => {
     const { event } = data;
+    if (!event) return;
 
-    if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
+    const eventAny = event as {
+      type?: string;
+      index?: number;
+      content_block?: {
+        type?: string;
+        id?: string;
+        name?: string;
+        input?: Record<string, unknown>;
+      };
+      delta?: {
+        text?: string;
+        partial_json?: string;
+      };
+    };
+
+    if (eventAny.type === 'content_block_start' && eventAny.content_block?.type === 'text') {
       const textMessage: StreamMessage = {
-        id: `text-${Date.now()}-${event.index}`,
+        id: `text-${Date.now()}-${eventAny.index || 0}`,
         role: 'assistant',
         content: '',
         isStreaming: true
       };
       setMessages(prev => [...prev, textMessage]);
-    } else if (event.type === 'content_block_delta' && event.delta?.text) {
+    } else if (eventAny.type === 'content_block_delta' && eventAny.delta?.text) {
       setMessages(prev => {
         const lastStreamingIndex = prev.findLastIndex(msg =>
           msg.role === 'assistant' && msg.isStreaming && msg.type !== 'tool_use'
@@ -223,8 +313,8 @@ export function useClaudeChat(workingDirectory: string) {
 
         if (lastStreamingIndex !== -1) {
           return prev.map((msg, idx) => {
-            if (idx === lastStreamingIndex) {
-              const newContent = msg.content + event.delta.text;
+            if (idx === lastStreamingIndex && eventAny.delta?.text) {
+              const newContent = msg.content + eventAny.delta.text;
               return { ...msg, content: newContent };
             }
             return msg;
@@ -232,19 +322,19 @@ export function useClaudeChat(workingDirectory: string) {
         }
         return prev;
       });
-    } else if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+    } else if (eventAny.type === 'content_block_start' && eventAny.content_block?.type === 'tool_use') {
       const toolMessage: StreamMessage = {
-        id: `tool-${Date.now()}-${event.content_block.id}`,
+        id: `tool-${Date.now()}-${eventAny.content_block.id}`,
         role: 'assistant',
         content: '',
         type: 'tool_use',
-        toolName: event.content_block.name,
-        toolInput: event.content_block.input || {},
+        toolName: eventAny.content_block.name,
+        toolInput: eventAny.content_block.input || {},
         isStreaming: true
       };
 
       setMessages(prev => [...prev, toolMessage]);
-    } else if (event.type === 'content_block_delta' && event.delta?.partial_json) {
+    } else if (eventAny.type === 'content_block_delta' && eventAny.delta?.partial_json) {
       setMessages(prev => {
         const lastToolIndex = prev.findLastIndex(msg =>
           msg.type === 'tool_use' && msg.isStreaming
@@ -252,8 +342,8 @@ export function useClaudeChat(workingDirectory: string) {
 
         if (lastToolIndex !== -1) {
           return prev.map((msg, idx) => {
-            if (idx === lastToolIndex) {
-              const accumulatedJson = msg.content + event.delta.partial_json;
+            if (idx === lastToolIndex && eventAny.delta?.partial_json) {
+              const accumulatedJson = msg.content + eventAny.delta.partial_json;
 
               try {
                 const parsedInput = JSON.parse(accumulatedJson);
@@ -267,7 +357,7 @@ export function useClaudeChat(workingDirectory: string) {
                   ...msg,
                   content: accumulatedJson,
                   toolInput: {
-                    ...msg.toolInput,
+                    ...(typeof msg.toolInput === 'object' && msg.toolInput !== null ? msg.toolInput : {}),
                     _streaming_content: accumulatedJson
                   }
                 };
@@ -278,10 +368,10 @@ export function useClaudeChat(workingDirectory: string) {
         }
         return prev;
       });
-    } else if (event.type === 'content_block_stop') {
+    } else if (eventAny.type === 'content_block_stop') {
       setMessages(prev =>
         prev.map((msg) => {
-          if (msg.isStreaming && ((event.index === 0 && msg.type !== 'tool_use') || msg.type === 'tool_use')) {
+          if (msg.isStreaming && ((eventAny.index === 0 && msg.type !== 'tool_use') || msg.type === 'tool_use')) {
             return { ...msg, isStreaming: false };
           }
           return msg;
@@ -291,14 +381,18 @@ export function useClaudeChat(workingDirectory: string) {
   };
 
   const handleResult = (data: StreamEvent) => {
-    if (data.usage) {
+    if (data.usage && typeof data.usage === 'object') {
       // Update token usage from the result
-      const usage = data.usage;
+      const usage = data.usage as {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
       setCurrentUsage({
-        inputTokens: usage.input_tokens || 0,
-        outputTokens: usage.output_tokens || 0,
-        totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
-        cachedInputTokens: usage.cache_read_input_tokens || 0,
+        inputTokens: Number(usage.input_tokens) || 0,
+        outputTokens: Number(usage.output_tokens) || 0,
+        totalTokens: (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0),
+        cachedInputTokens: Number(usage.cache_read_input_tokens) || 0,
         reasoningTokens: 0 // Claude doesn't have reasoning tokens yet
       });
 
@@ -382,12 +476,16 @@ export function useClaudeChat(workingDirectory: string) {
                 });
               } else if (data.type === 'stream_event' && data.event?.type === 'message_delta' && data.event?.usage) {
                 // Update usage during streaming
-                const usage = data.event.usage;
+                const usage = data.event.usage as {
+                  input_tokens?: number;
+                  output_tokens?: number;
+                  cache_read_input_tokens?: number;
+                };
                 setCurrentUsage({
-                  inputTokens: usage.input_tokens || 0,
-                  outputTokens: usage.output_tokens || 0,
-                  totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
-                  cachedInputTokens: usage.cache_read_input_tokens || 0,
+                  inputTokens: Number(usage.input_tokens) || 0,
+                  outputTokens: Number(usage.output_tokens) || 0,
+                  totalTokens: (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0),
+                  cachedInputTokens: Number(usage.cache_read_input_tokens) || 0,
                   reasoningTokens: 0
                 });
               } else if (data.type === 'result') {
@@ -438,6 +536,7 @@ export function useClaudeChat(workingDirectory: string) {
     messages,
     sessionId,
     isStreaming,
+    isLoadingConversation,
     agents,
     currentUsage,
     selectedModel,

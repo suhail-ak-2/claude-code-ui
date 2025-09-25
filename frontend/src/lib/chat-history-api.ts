@@ -25,6 +25,13 @@ export interface ConversationMessage {
   };
   parentUuid?: string;
   sessionId: string;
+  isSidechain?: boolean;
+  toolUseResult?: {
+    stdout?: string;
+    stderr?: string;
+    interrupted?: boolean;
+    isImage?: boolean;
+  };
 }
 
 export interface ConversationDetails {
